@@ -8,8 +8,7 @@ public class UnitTest1
     [Fact]
     public async Task Test1()
     {
-        var image = new Image("localstack/localstack");
-        var container = await image.TryRunAsContainer();
+        var localstack = await LocalStack.StartAsync();
         
         var client = new AmazonS3Client(new AmazonS3Config
         {
@@ -22,6 +21,15 @@ public class UnitTest1
         var bucketList = await client.ListBucketsAsync();
         
 
-        await container.StopAsync();
+        await localstack.StopAsync();
+    }
+
+    private static class LocalStack
+    {
+        public static async Task<Container> StartAsync()
+        {
+            var image = new Image("localstack/localstack", "4566");
+            return await image.TryRunAsContainer();
+        }
     }
 }

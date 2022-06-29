@@ -1,40 +1,53 @@
 ﻿using Docker.DotNet;
 using Docker.DotNet.Models;
-using System.Collections.ObjectModel;
 
 namespace DockerDotNet;
 
-public record Image(string Name)
+public record Image(string Name, Dictionary<string, string> PortMap)
 {
+    public Image(string name, string hostPort, string containerPort)
+        :this(name, new Dictionary<string, string> {{hostPort, containerPort}})
+    {
+        
+    }
+    
+    public Image(string name, string port)
+        :this(name, new Dictionary<string, string> {{port, port}})
+    {
+        
+    }
+    
     public async Task<Container> TryRunAsContainer()
     {
         var client = new DockerClientConfiguration()
             .CreateClient();
-        
-        var response = await client.Containers.CreateContainerAsync(new CreateContainerParameters()
+
+        var createContainerParameters = new CreateContainerParameters()
         {
             Image = Name,
-            ExposedPorts = new Dictionary<string, EmptyStruct>()
-            {
-                {"4566", new EmptyStruct()}
-            },
             HostConfig = new HostConfig
             {
                 AutoRemove = true,
-                
-                PortBindings = new Dictionary<string, IList<PortBinding>>
-                {
-                    {"4566", new Collection<PortBinding>{ new() {HostPort = "4566"}}}
-                }
             }
-        });
+        };
 
-        var hasStarted = await client.Containers.StartContainerAsync(response.ID, new ContainerStartParameters());
-        return new Container(response.ID);
+        foreach (var port in PortMap)
+        {
+            createContainerParameters.ExposedPorts.Add(port.Key, new EmptyStruct());
+            createContainerParameters.HostConfig.PortBindings.Add(port.Key,
+                new List<PortBinding>
+                {
+                    new() { HostPort = port.Value } 
+                });
+        }
+        
+        var response = await client.Containers.CreateContainerAsync(createContainerParameters);
+        return new Container(response.ID, await 
+            client.Containers.StartContainerAsync(response.ID, new ContainerStartParameters()));
     }
 }
 
-public record Container(string Id)
+public record Container(string Id, bool Started)
 {
     public async Task<bool> StopAsync()
     {
