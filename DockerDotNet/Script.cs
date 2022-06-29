@@ -1,5 +1,6 @@
-﻿using System.Diagnostics;
-using System.Runtime.InteropServices;
+﻿using Docker.DotNet;
+using Docker.DotNet.Models;
+using System.Collections.ObjectModel;
 
 namespace DockerDotNet;
 
@@ -7,11 +8,41 @@ public record Image(string Name)
 {
     public async Task<Container> TryRunAsContainer()
     {
-        return new Container("1234");
+        var client = new DockerClientConfiguration()
+            .CreateClient();
+        
+        var response = await client.Containers.CreateContainerAsync(new CreateContainerParameters()
+        {
+            Image = Name,
+            ExposedPorts = new Dictionary<string, EmptyStruct>()
+            {
+                {"4566", new EmptyStruct()}
+            },
+            HostConfig = new HostConfig
+            {
+                AutoRemove = true,
+                
+                PortBindings = new Dictionary<string, IList<PortBinding>>
+                {
+                    {"4566", new Collection<PortBinding>{ new() {HostPort = "4566"}}}
+                }
+            }
+        });
+
+        var hasStarted = await client.Containers.StartContainerAsync(response.ID, new ContainerStartParameters());
+        return new Container(response.ID);
     }
 }
 
-public record Container(string Id);
+public record Container(string Id)
+{
+    public async Task<bool> StopAsync()
+    {
+        var client = new DockerClientConfiguration()
+            .CreateClient();
+        return await client.Containers.StopContainerAsync(Id, new ContainerStopParameters());
+    }
+}
 
 public abstract class CommandLine
 {
@@ -34,65 +65,5 @@ public class DockerVisitor : IVisitor
     public Task<string> Visit(CommandLine commandLine)
     {
         throw new NotImplementedException();
-    }
-}
-
-internal static class Command
-{
-    public static async Task RunAsync(string val, CancellationToken cancellationToken = default)
-    {
-        if (OperatingSystem.IsWindows()) 
-            await val.BatAsync(cancellationToken);
-        
-        
-        if (OperatingSystem.IsMacOS()) 
-            await val.BashAsync(cancellationToken);
-    }
-}
-
-internal static class OperatingSystem
-{
-    public static bool IsWindows() =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
-    public static bool IsMacOS() =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-
-    public static bool IsLinux() =>
-        RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
-}
-
-internal static class Shell
-{
-    public static async Task<string> BashAsync(this string cmd, CancellationToken cancellationToken = default)
-    {
-        var escapedArgs = cmd.Replace("\"", "\\\"");
-        return await RunAsync("/bin/bash", $"-c \"{escapedArgs}\"", cancellationToken);
-    }
-
-    public static async Task<string> BatAsync(this string cmd, CancellationToken cancellationToken = default)
-    {
-        var escapedArgs = cmd.Replace("\"", "\\\"");
-        return await RunAsync("cmd.exe", $"/c \"{escapedArgs}\"", cancellationToken);
-    }
-
-    private static async Task<string> RunAsync (string filename, string arguments, CancellationToken cancellationToken = default)
-    {
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = filename,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = false,
-            }
-        };
-        
-        process.Start();
-        var result = await process.StandardOutput.ReadToEndAsync();
-        await process.WaitForExitAsync(cancellationToken);
-        return result;
     }
 }
